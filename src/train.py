@@ -325,27 +325,5 @@ def train_model(model, datasets, criterion, optimizer):
 def save_checkpoint(state, filename='checkpoint.pth.tar'):
     torch.save(state, filename)
 
-def evaluate(model, dataloader, criterion, epoch):
-    model.eval()
-    dataset = dataloader.dataset
-    running_loss = 0
-    # test on a sample sequence from training set itself
-    for i in xrange(64):
-        sample = dataset[i]
-        sample['currimg'] = sample['currimg'][None,:,:,:]
-        sample['previmg'] = sample['previmg'][None,:,:,:]
-        x1, x2 = sample['previmg'], sample['currimg']
-        y = sample['currbb']
-        x1 = Variable(x1.cuda())
-        x2 = Variable(x2.cuda())
-        y = Variable(y.cuda(), requires_grad=False)
-        output = model(x1, x2)
-        loss = criterion(output, y)
-        running_loss += loss.data[0]
-        print('[validation] epoch = %d, i = %d, loss = %f' % (epoch, i, loss.data[0]))
-
-    seq_loss = running_loss/64
-    return seq_loss
-
 if __name__ == "__main__":
     main()
