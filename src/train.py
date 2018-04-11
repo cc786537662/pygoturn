@@ -39,6 +39,8 @@ parser.add_argument('-lscale', '--lambda-scale-frac', default=15, type=float, he
 parser.add_argument('-minsc', '--min-scale', default=-0.4, type=float, help='min-scale for random cropping')
 parser.add_argument('-maxsc', '--max-scale', default=0.4, type=float, help='max-scale for random cropping')
 parser.add_argument('-seed', '--manual-seed', default=800, type=int, help='set manual seed value')
+parser.add_argument('--start-itr', default=0, type=int, help='manual epoch number (useful on restarts)')
+parser.add_argument('--resume', default='', type=str, metavar='PATH',help='path to latest checkpoint (default: none)')
 
 def main():
 
@@ -102,7 +104,6 @@ def main():
     else:
         os.makedirs(args.save_directory)
 
-    # start training
     net = train_model(net, datasets, loss_fn, optimizer)
 
     # save trained model
@@ -239,10 +240,27 @@ def train_model(model, datasets, criterion, optimizer):
 		     'currimg': torch.Tensor(batchSize, 3, 227, 227),
 		     'currbb': torch.Tensor(batchSize, 4)}
 
+    # resume from a checkpoint
+    if args.resume:
+        if os.path.isfile(args.resume):
+            print("=> loading checkpoint '{}'".format(args.resume))
+            checkpoint = torch.load(args.resume)
+            args.start_itr = checkpoint['itr']
+            model.load_state_dict(checkpoint['state_dict'])
+            optimizer.load_state_dict(checkpoint['optimizer'])
+            running_batch_idx = checkpoint['running_batch_idx']
+	    running_batch = checkpoint['running_batch']
+	    lr = checkpoint['lr']
+	    np.random.set_state(checkpoint['rand_state'])
+            print("=> loaded checkpoint '{}' (epoch {})"
+                  .format(args.resume, checkpoint['epoch']))
+        else:
+            print("=> no checkpoint found at '{}'".format(args.resume))    
+
     if not os.path.isdir(args.save_directory):
         os.makedirs(args.save_directory)
 	
-    itr = 0
+    itr = args.start_itr
     while itr < args.num_batches:
 
         model.train()
@@ -285,8 +303,17 @@ def train_model(model, datasets, criterion, optimizer):
                 sys.stdout.flush()
 
                 if itr > 0 and itr % kSaveModel == 0:
-                    path = args.save_directory + 'model_n_batch_' + str(itr) + '_loss_' + str(round(curr_loss, 3)) + '.pth'
-                    torch.save(model.state_dict(), path)
+                    path = args.save_directory + 'model_itr_' + str(itr) + '_loss_' + str(round(curr_loss, 3)) + '.pth.tar'
+		    save_checkpoint({
+			'itr': itr,
+			'rand_state': np.random.get_state(),
+			'l1_loss': curr_loss,
+			'state_dict': model.state_dict(),
+			'optimizer' : optimizer.state_dict(),
+			'running_batch_idx': running_batch_idx,
+			'running_batch': running_batch,
+			'lr': lr
+		    }, path)
 
     time_elapsed = time.time() - since
     print('Training complete in {:.0f}m {:.0f}s'.format(
@@ -294,6 +321,9 @@ def train_model(model, datasets, criterion, optimizer):
     writer.export_scalars_to_json("./all_scalars.json")
     writer.close()
     return model
+
+def save_checkpoint(state, filename='checkpoint.pth.tar'):
+    torch.save(state, filename)
 
 def evaluate(model, dataloader, criterion, epoch):
     model.eval()
