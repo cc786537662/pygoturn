@@ -46,7 +46,7 @@ class ALOVDataset(Dataset):
         self.x = np.array(self.x)
         self.y = np.array(self.y)
         print('ALOV dataset parsing done.')
-        print('Total number of annotations in ALOV Dataset =', self.len) # should return 
+        print('Total number of annotations in ALOV Dataset =', self.len) # should return 16023
 
     # return size of dataset
     def __len__(self):
