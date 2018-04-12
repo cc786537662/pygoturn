@@ -39,16 +39,20 @@ parser.add_argument('-maxsc', '--max-scale', default=0.4, type=float, help='max-
 parser.add_argument('-seed', '--manual-seed', default=800, type=int, help='set manual seed value')
 parser.add_argument('--start-itr', default=0, type=int, help='manual epoch number (useful on restarts)')
 parser.add_argument('--resume', default='', type=str, metavar='PATH',help='path to latest checkpoint (default: none)')
+parser.add_argument('-b', '--batch-size', default=50, type=int, help='number of samples in batch (default: 50)')
+parser.add_argument('--save-freq', default=20000, type=int, help='save checkpoint frequency (default: 20000)')
 
 def main():
 
-    global args
+    global args, batchSize, kSaveModel, use_gpu
     args = parser.parse_args()
     print(args)
+    batchSize = args.batch_size
+    kSaveModel = args.save_freq
     np.random.seed(args.manual_seed)
     torch.manual_seed(args.manual_seed)
     if use_gpu:
-        torch.cuda.manual_seed(args.manual_seed)
+        torch.cuda.manual_seed_all(args.manual_seed)
 
     # load datasets
     alov = ALOVDataset('../data/alov300/imagedata++/',
@@ -229,9 +233,12 @@ def make_transformed_samples(dataset, args):
 
 def train_model(model, datasets, criterion, optimizer):
 
+    global args
     since = time.time()
     curr_loss = 0
     lr = args.learning_rate
+    i = 0
+    flag = False
     running_batch_idx = 0
     running_batch = {'previmg': torch.Tensor(batchSize, 3, 227, 227),
 		     'currimg': torch.Tensor(batchSize, 3, 227, 227),
@@ -248,9 +255,10 @@ def train_model(model, datasets, criterion, optimizer):
             running_batch_idx = checkpoint['running_batch_idx']
 	    running_batch = checkpoint['running_batch']
 	    lr = checkpoint['lr']
-	    np.random.set_state(checkpoint['rand_state'])
-            print("=> loaded checkpoint '{}' (epoch {})"
-                  .format(args.resume, checkpoint['epoch']))
+	    np.random.set_state(checkpoint['np_rand_state'])
+            torch.set_rng_state(checkpoint['torch_rand_state'])
+            print("=> loaded checkpoint '{}' (iteration {})"
+                  .format(args.resume, checkpoint['itr']))
         else:
             print("=> no checkpoint found at '{}'".format(args.resume))    
 
@@ -258,18 +266,24 @@ def train_model(model, datasets, criterion, optimizer):
         os.makedirs(args.save_directory)
 	
     itr = args.start_itr
+    model.train()
+
     while itr < args.num_batches:
 
-        model.train()
-        if itr > 0 and itr % args.lr_decay_step == 0:
-            optimizer, lr = exp_lr_scheduler(optimizer, itr, lr, args.gamma)
 
         # train on datasets
         # usually ALOV and ImageNet
-        for i, dataset in enumerate(datasets):
+        if args.resume and os.path.isfile(args.resume) and itr == args.start_itr and (not flag):
+            checkpoint = torch.load(args.resume)
+            i = checkpoint['dataset_indx']
+            flag = True
+        else:
+            i = 0
 
+        while i < len(datasets):
+            dataset = datasets[i]
+            i = i+1
             running_batch, train_batch, done, running_batch_idx = get_training_batch(running_batch_idx, running_batch, dataset)
-            # print 'running_batch_idx =', running_batch_idx
             if done:
                 x1 = train_batch['previmg']
                 x2 = train_batch['currimg']
@@ -280,6 +294,9 @@ def train_model(model, datasets, criterion, optimizer):
                         Variable(x2.cuda()), Variable(y.cuda(), requires_grad=False)
                 else:
                     x1, x2, y = Variable(x1), Variable(x2), Variable(y, requires_grad=False)
+
+                if itr > 0 and itr % args.lr_decay_step == 0:
+                    optimizer, lr = exp_lr_scheduler(optimizer, itr, lr, args.gamma)
 
                 # zero the parameter gradients
                 optimizer.zero_grad()
@@ -299,16 +316,19 @@ def train_model(model, datasets, criterion, optimizer):
                 sys.stdout.flush()
 
                 if itr > 0 and itr % kSaveModel == 0:
-                    path = args.save_directory + 'model_itr_' + str(itr) + '_loss_' + str(round(curr_loss, 3)) + '.pth.tar'
+                    path = os.path.join(args.save_directory,
+                                        'model_itr_' + str(itr) + '_loss_' + str(round(curr_loss, 3)) + '.pth.tar')
 		    save_checkpoint({
 			'itr': itr,
-			'rand_state': np.random.get_state(),
+			'np_rand_state': np.random.get_state(),
+			'torch_rand_state': torch.get_rng_state(),
 			'l1_loss': curr_loss,
 			'state_dict': model.state_dict(),
 			'optimizer' : optimizer.state_dict(),
 			'running_batch_idx': running_batch_idx,
 			'running_batch': running_batch,
-			'lr': lr
+			'lr': lr,
+                        'dataset_indx': i
 		    }, path)
 
     time_elapsed = time.time() - since
