@@ -15,7 +15,6 @@ import torch.optim as optim
 import numpy as np
 from helper import *
 from multiprocessing.dummy import Pool as ThreadPool
-from tensorboardX import SummaryWriter
 
 # constants
 use_gpu = torch.cuda.is_available()
@@ -23,7 +22,6 @@ kSaveModel = 20000 # save model after every 20000 steps
 batchSize = 50 # number of samples in a batch
 kGeneratedExamplesPerImage = 10; # generate 10 synthetic samples per image in a dataset
 transform = transforms.Compose([Normalize(), ToTensor()])
-writer = SummaryWriter()
 
 args = None
 parser = argparse.ArgumentParser(description='GOTURN Training')
@@ -231,7 +229,6 @@ def make_transformed_samples(dataset, args):
 
 def train_model(model, datasets, criterion, optimizer):
 
-    global writer
     since = time.time()
     curr_loss = 0
     lr = args.learning_rate
@@ -298,7 +295,6 @@ def train_model(model, datasets, criterion, optimizer):
                 # statistics
                 curr_loss = loss.data[0]
                 itr = itr + 1
-                writer.add_scalar('train/batch_loss', curr_loss, itr)
                 print('[training] step = %d/%d, loss = %f' % (itr, args.num_batches, curr_loss))
                 sys.stdout.flush()
 
@@ -318,8 +314,6 @@ def train_model(model, datasets, criterion, optimizer):
     time_elapsed = time.time() - since
     print('Training complete in {:.0f}m {:.0f}s'.format(
         time_elapsed // 60, time_elapsed % 60))
-    writer.export_scalars_to_json("./all_scalars.json")
-    writer.close()
     return model
 
 def save_checkpoint(state, filename='checkpoint.pth.tar'):
